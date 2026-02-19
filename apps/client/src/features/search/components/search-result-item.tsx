@@ -93,6 +93,15 @@ export function SearchResultItem({
     );
   } else {
     const pageResult = result as IPageSearch;
+
+    const breadcrumbs = pageResult.breadcrumbs ?? [];
+    const pathParts: string[] = [];
+    if (showSpace && pageResult.space?.name) {
+      pathParts.push(pageResult.space.name);
+    }
+    pathParts.push(...breadcrumbs.map((b) => b.title || "Untitled"));
+    const pathText = pathParts.join(" › ");
+
     return (
       <Spotlight.Action
         component={Link}
@@ -110,10 +119,10 @@ export function SearchResultItem({
           <div style={{ flex: 1 }}>
             <Text>{pageResult.title}</Text>
 
-            {showSpace && pageResult.space && (
-              <Badge variant="light" size="xs" color="gray">
-                {pageResult.space.name}
-              </Badge>
+            {pathText && (
+              <Text size="xs" opacity={0.5} lineClamp={1}>
+                {pathText}
+              </Text>
             )}
 
             {pageResult?.highlight && (

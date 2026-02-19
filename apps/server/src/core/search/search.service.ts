@@ -127,7 +127,62 @@ export class SearchService {
       return result;
     });
 
-    return { items: searchResults };
+    const pageIdsWithParents = searchResults
+      .filter((r: SearchResponseDto) => r.parentPageId)
+      .map((r: SearchResponseDto) => r.id);
+
+    const breadcrumbsMap = await this.getBreadcrumbsBatch(pageIdsWithParents);
+
+    const itemsWithBreadcrumbs = searchResults.map((result: SearchResponseDto) => ({
+      ...result,
+      breadcrumbs: breadcrumbsMap.get(result.id) ?? [],
+    }));
+
+    return { items: itemsWithBreadcrumbs };
+  }
+
+  private async getBreadcrumbsBatch(
+    pageIds: string[],
+  ): Promise<Map<string, Array<{ title: string; icon: string }>>> {
+    if (pageIds.length === 0) return new Map();
+
+    const idsParam = sql.join(pageIds.map((id) => sql`${id}`));
+
+    const results = await sql<{
+      leafId: string;
+      breadcrumbs: Array<{ title: string; icon: string }>;
+    }>`
+      WITH RECURSIVE page_ancestors AS (
+        SELECT id AS leaf_id, id, title, icon, parent_page_id, 0 AS depth
+        FROM pages
+        WHERE id IN (${idsParam})
+          AND deleted_at IS NULL
+
+        UNION ALL
+
+        SELECT pa.leaf_id, p.id, p.title, p.icon, p.parent_page_id, pa.depth + 1
+        FROM pages p
+        INNER JOIN page_ancestors pa ON pa.parent_page_id = p.id
+        WHERE p.deleted_at IS NULL
+      )
+      SELECT
+        leaf_id,
+        COALESCE(
+          json_agg(
+            json_build_object('title', title, 'icon', icon)
+            ORDER BY depth DESC
+          ) FILTER (WHERE id != leaf_id),
+          '[]'::json
+        ) AS breadcrumbs
+      FROM page_ancestors
+      GROUP BY leaf_id
+    `.execute(this.db);
+
+    const map = new Map<string, Array<{ title: string; icon: string }>>();
+    for (const row of results.rows) {
+      map.set(row.leafId, row.breadcrumbs ?? []);
+    }
+    return map;
   }
 
   async searchSuggestions(
